@@ -237,10 +237,10 @@ int trust_signatures(int pid, int fd, struct siginfo *sigInfos, uint32_t sigInfo
 {
 	if (sigInfoCount == 0) return 0;
 
-	cdhash_t *cdhashes = malloc(sizeof(cdhash_t) * JB_TC_BATCHSIZE);
+	cdhash_t *cdhashes = malloc(sizeof(cdhash_t) * JB_TC_BATCH_SIZE);
 	if (!cdhashes) return -2;
 
-	struct siginfo **sigInfosToAttach = malloc(sizeof(struct siginfo *) * JB_TC_BATCHSIZE);
+	struct siginfo **sigInfosToAttach = malloc(sizeof(struct siginfo *) * JB_TC_BATCH_SIZE);
 	if (!sigInfosToAttach) {
 		free(cdhashes);
 		return -2;
@@ -249,7 +249,7 @@ int trust_signatures(int pid, int fd, struct siginfo *sigInfos, uint32_t sigInfo
 
 	for (uint32_t batchStart = 0; batchStart < sigInfoCount;) {
 		uint32_t batchCount = sigInfoCount - batchStart;
-		if (batchCount > JB_TC_BATCHSIZE) batchCount = JB_TC_BATCHSIZE;
+		if (batchCount > JB_TC_BATCH_SIZE) batchCount = JB_TC_BATCH_SIZE;
 		uint32_t cdhashesCount = 0;
 		uint32_t sigInfosToAttachCount = 0;
 

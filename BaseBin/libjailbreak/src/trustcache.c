@@ -141,14 +141,14 @@ static struct {
 	uint64_t kaddr;
 	bool busy;
 	bool published;
-} gTrustcacheBatches[JB_TC_BATCHCOUNT];
+} gTrustcacheBatches[JB_TC_BATCH_COUNT];
 static pthread_mutex_t gTrustcacheBatchLock = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t gTrustcacheBatchPool = 0;
 static uint32_t gTrustcacheBatchLinked = 0;
 static bool gTrustcacheBatchesInitialized = false;
 
-_Static_assert(JB_TC_BATCHCOUNT > 0 && JB_TC_BATCHCOUNT <= 32, "Batch bitmap capacity exceeded");
-_Static_assert(JB_TC_BATCH_STRIDE * JB_TC_BATCHCOUNT <= JB_TRUSTCACHE_SIZE, "Batches must fit in one allocation");
+_Static_assert(JB_TC_BATCH_COUNT > 0 && JB_TC_BATCH_COUNT <= 32, "Batch bitmap capacity exceeded");
+_Static_assert(JB_TC_BATCH_POOL_SIZE <= JB_TRUSTCACHE_SIZE, "Batches must fit in one allocation");
 
 // Called with gTrustcacheBatchLock held. Recovery assumes the previous owner
 // has stopped all batch operations (for example, after a userspace reboot).
@@ -160,7 +160,7 @@ static int _jb_trustcache_init_batches(void)
 	__block bool invalidPool = false;
 	_trustcache_list_enumerate(^(uint64_t tcKaddr, bool *stop) {
 		uint64_t magic = kread64(tcKaddr + offsetof(jb_trustcache, magic));
-		if (magic < JB_TC_BATCH_MAGIC || magic - JB_TC_BATCH_MAGIC >= JB_TC_BATCHCOUNT) return;
+		if (magic < JB_TC_BATCH_MAGIC || magic - JB_TC_BATCH_MAGIC >= JB_TC_BATCH_COUNT) return;
 		uint32_t index = (uint32_t)(magic - JB_TC_BATCH_MAGIC);
 		uint64_t pool = tcKaddr - index * JB_TC_BATCH_STRIDE;
 		if (kread64(tcKaddr + koffsetof(trustcache, fileptr)) != tcKaddr + offsetof(jb_trustcache, file)
@@ -176,10 +176,10 @@ static int _jb_trustcache_init_batches(void)
 
 	if (!gTrustcacheBatchPool) {
 		uint64_t pool = 0;
-		if (kalloc(&pool, JB_TRUSTCACHE_SIZE) != 0 || !pool) return -1;
-		_Alignas(16) uint8_t image[JB_TC_BATCH_STRIDE * JB_TC_BATCHCOUNT];
+		if (kalloc(&pool, JB_TC_BATCH_POOL_SIZE) != 0 || !pool) return -1;
+		_Alignas(16) uint8_t image[JB_TC_BATCH_POOL_SIZE];
 		memset(image, 0, sizeof(image));
-		for (uint32_t i = 0; i < JB_TC_BATCHCOUNT; i++) {
+		for (uint32_t i = 0; i < JB_TC_BATCH_COUNT; i++) {
 			jb_trustcache *batch = (jb_trustcache *)(image + i * JB_TC_BATCH_STRIDE);
 			_trustcache_file_init(&batch->file);
 			batch->magic = JB_TC_BATCH_MAGIC + i;
@@ -192,13 +192,13 @@ static int _jb_trustcache_init_batches(void)
 			}
 		}
 		if (kwritebuf(pool, image, sizeof(image)) != 0) {
-			kfree(pool, JB_TRUSTCACHE_SIZE);
+			kfree(pool, JB_TC_BATCH_POOL_SIZE);
 			return -1;
 		}
 		gTrustcacheBatchPool = pool;
 	}
 
-	for (uint32_t i = 0; i < JB_TC_BATCHCOUNT; i++) {
+	for (uint32_t i = 0; i < JB_TC_BATCH_COUNT; i++) {
 		uint64_t kaddr = gTrustcacheBatchPool + i * JB_TC_BATCH_STRIDE;
 		uint32_t length = 0;
 		if (kwritebuf(kaddr + offsetof(jb_trustcache, file.length), &length, sizeof(length)) != 0) return -1;
@@ -221,7 +221,7 @@ int jb_trustcache_acquire_batch(uint32_t *batchIndexOut)
 	int r = _jb_trustcache_init_batches();
 	if (r == 0) {
 		r = 1;
-		for (uint32_t i = 0; i < JB_TC_BATCHCOUNT; i++) {
+		for (uint32_t i = 0; i < JB_TC_BATCH_COUNT; i++) {
 			if (!gTrustcacheBatches[i].busy) {
 				gTrustcacheBatches[i].busy = true;
 				*batchIndexOut = i;
@@ -236,11 +236,11 @@ int jb_trustcache_acquire_batch(uint32_t *batchIndexOut)
 
 int jb_trustcache_add_batch_entries(uint32_t batchIndex, struct trustcache_entry_v1 *entries, uint32_t entryCount)
 {
-	if (batchIndex >= JB_TC_BATCHCOUNT || entryCount > JB_TC_BATCHSIZE || (entryCount && !entries)) return -1;
+	if (batchIndex >= JB_TC_BATCH_COUNT || entryCount > JB_TC_BATCH_SIZE || (entryCount && !entries)) return -1;
 	pthread_mutex_lock(&gTrustcacheBatchLock);
 	int r = -1;
 	if (gTrustcacheBatchesInitialized && gTrustcacheBatches[batchIndex].busy && !gTrustcacheBatches[batchIndex].published) {
-		struct trustcache_entry_v1 sortedEntries[JB_TC_BATCHSIZE];
+		struct trustcache_entry_v1 sortedEntries[JB_TC_BATCH_SIZE];
 		if (entryCount) memcpy(sortedEntries, entries, entryCount * sizeof(*entries));
 		qsort(sortedEntries, entryCount, sizeof(*entries), _trustcache_file_sort_entry_comparator_v1);
 		uint64_t kaddr = gTrustcacheBatches[batchIndex].kaddr;
@@ -257,7 +257,7 @@ int jb_trustcache_add_batch_entries(uint32_t batchIndex, struct trustcache_entry
 
 int jb_trustcache_release_batch(uint32_t batchIndex)
 {
-	if (batchIndex >= JB_TC_BATCHCOUNT) return -1;
+	if (batchIndex >= JB_TC_BATCH_COUNT) return -1;
 	pthread_mutex_lock(&gTrustcacheBatchLock);
 	int r = -1;
 	if (gTrustcacheBatchesInitialized && gTrustcacheBatches[batchIndex].busy) {
@@ -371,9 +371,9 @@ int jb_trustcache_add_cdhashes(cdhash_t *hashes, uint32_t hashCount)
 
 int jb_trustcache_add_batch_cdhashes(uint32_t batchIndex, cdhash_t *hashes, uint32_t hashCount)
 {
-	if (hashCount > JB_TC_BATCHSIZE || (hashCount > 0 && !hashes)) return -1;
+	if (hashCount > JB_TC_BATCH_SIZE || (hashCount > 0 && !hashes)) return -1;
 
-	struct trustcache_entry_v1 entries[JB_TC_BATCHSIZE];
+	struct trustcache_entry_v1 entries[JB_TC_BATCH_SIZE];
 	for (uint32_t i = 0; i < hashCount; i++) {
 		memcpy(entries[i].hash, hashes[i], sizeof(cdhash_t));
 		entries[i].hash_type = 1;

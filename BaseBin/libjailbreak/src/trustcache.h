@@ -16,7 +16,7 @@ int trustcache_list_insert(uint64_t tcKaddr);
 int jb_trustcache_add_entries(struct trustcache_entry_v1 *entries, uint32_t entryCount);
 int jb_trustcache_add_entry(trustcache_entry_v1 entry);
 int jb_trustcache_add_cdhashes(cdhash_t *hashes, uint32_t hashCount);
-// Accepts at most JB_TC_BATCHSIZE hashes; returns -1 for invalid input.
+// Accepts at most JB_TC_BATCH_SIZE hashes; returns -1 for invalid input.
 int jb_trustcache_add_batch_cdhashes(uint32_t batchIndex, cdhash_t *hashes, uint32_t hashCount);
 // Batch APIs have a single owning process; handoff requires quiescent callers.
 // Acquire returns 0 on success, 1 if exhausted, or -1 on error.
