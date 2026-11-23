@@ -818,7 +818,6 @@ int fd_attach_signature(int fd, fsignatures_t *signature)
 	kwrite32(target_cs_blob + koffsetof(cs_blob, cpu_subtype), header.cpusubtype);
 	return 0;
 }
-
 int cmd_wait_for_exit(pid_t pid)
 {
 	int status = 0;

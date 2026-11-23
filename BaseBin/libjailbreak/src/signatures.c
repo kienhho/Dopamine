@@ -237,94 +237,132 @@ int trust_signatures(int pid, int fd, struct siginfo *sigInfos, uint32_t sigInfo
 {
 	if (sigInfoCount == 0) return 0;
 
-    cdhash_t *cdhashes = malloc(sizeof(cdhash_t) * sigInfoCount);
+	cdhash_t *cdhashes = malloc(sizeof(cdhash_t) * JB_TC_BATCHSIZE);
 	if (!cdhashes) return -2;
-    uint32_t cdhashesCount = 0;
 
-	struct siginfo **sigInfosToAttach = malloc(sizeof(struct siginfo *) * sigInfoCount);
-	if (!sigInfosToAttach) return -2;
-	uint32_t sigInfosToAttachCount = 0;
+	struct siginfo **sigInfosToAttach = malloc(sizeof(struct siginfo *) * JB_TC_BATCHSIZE);
+	if (!sigInfosToAttach) {
+		free(cdhashes);
+		return -2;
+	}
+	int r = 0;
 
-	for (uint32_t i = 0; i < sigInfoCount; i++) {
-		struct siginfo *curSigInfo = &sigInfos[i];
-		CS_SuperBlob *superblob = siginfo_resolve_superblob(curSigInfo, pid, fd);
-		if (superblob) {
-			CS_DecodedSuperBlob *decodedSuperblob = csd_superblob_decode(superblob);
-			free(superblob);
+	for (uint32_t batchStart = 0; batchStart < sigInfoCount;) {
+		uint32_t batchCount = sigInfoCount - batchStart;
+		if (batchCount > JB_TC_BATCHSIZE) batchCount = JB_TC_BATCHSIZE;
+		uint32_t cdhashesCount = 0;
+		uint32_t sigInfosToAttachCount = 0;
 
-			if (decodedSuperblob) {
-				if (csd_superblob_is_adhoc_signed(decodedSuperblob)) {
-					CS_DecodedBlob *bestCDBlob = csd_superblob_find_best_code_directory(decodedSuperblob);
-					if (bestCDBlob) {
-						if (ksymbol(SPTMArgs)) {
-							uint32_t flags = csd_code_directory_get_flags(bestCDBlob);
-							bool hasTeamId = false;
-							char *teamId = csd_code_directory_copy_team_id(bestCDBlob, NULL);
-							if (teamId) {
-								free(teamId);
-								hasTeamId = true;
-							}
+		for (uint32_t i = batchStart; i < batchStart + batchCount; i++) {
+			struct siginfo *curSigInfo = &sigInfos[i];
+			sigInfosToAttach[sigInfosToAttachCount++] = curSigInfo;
+			CS_SuperBlob *superblob = siginfo_resolve_superblob(curSigInfo, pid, fd);
+			if (superblob) {
+				CS_DecodedSuperBlob *decodedSuperblob = csd_superblob_decode(superblob);
+				free(superblob);
 
-							if (!!(flags & CS_ADHOC) == hasTeamId) {
-								// According to TXM, either CS_ADHOC or TeamID is fine
-								// Both or neither are not
-								// Neither: We give it CS_ADHOC
-								// Both: We strip CS_ADHOC
+				if (decodedSuperblob) {
+					if (csd_superblob_is_adhoc_signed(decodedSuperblob)) {
+						CS_DecodedBlob *bestCDBlob = csd_superblob_find_best_code_directory(decodedSuperblob);
+						if (bestCDBlob) {
+							if (ksymbol(SPTMArgs)) {
+								uint32_t flags = csd_code_directory_get_flags(bestCDBlob);
+								bool hasTeamId = false;
+								char *teamId = csd_code_directory_copy_team_id(bestCDBlob, NULL);
+								if (teamId) {
+									free(teamId);
+									hasTeamId = true;
+								}
 
-								if (curSigInfo->source == SIGNATURE_SOURCE_ALLOCATION) {
-									if (hasTeamId) {
-										// Has both TeamID and CS_ADHOC, strip CS_ADHOC
-										csd_code_directory_set_flags(bestCDBlob, flags & ~CS_ADHOC);
+								if (!!(flags & CS_ADHOC) == hasTeamId) {
+									// According to TXM, either CS_ADHOC or TeamID is fine
+									// Both or neither are not
+									// Neither: We give it CS_ADHOC
+									// Both: We strip CS_ADHOC
+
+									if (curSigInfo->source == SIGNATURE_SOURCE_ALLOCATION) {
+										if (hasTeamId) {
+											// Has both TeamID and CS_ADHOC, strip CS_ADHOC
+											csd_code_directory_set_flags(bestCDBlob, flags & ~CS_ADHOC);
+										}
+										else {
+											// Has neither TeamID or CS_ADHOC, add CS_ADHOC
+											csd_code_directory_set_flags(bestCDBlob, flags | CS_ADHOC);
+										}
+
+										free(curSigInfo->signature.fs_blob_start);
+										superblob = csd_superblob_encode(decodedSuperblob);
+										curSigInfo->signature.fs_blob_start = superblob;
+										curSigInfo->signature.fs_blob_size = OSSwapBigToHostInt32(superblob->length);
 									}
 									else {
-										// Has neither TeamID or CS_ADHOC, add CS_ADHOC
-										csd_code_directory_set_flags(bestCDBlob, flags | CS_ADHOC);
+										// If the signature does not reside inside our own address space, there is nothing we can do
+										// Such a signature should have been caught by dyldhook so in reality this code path will probably never fire
+										csd_superblob_free(decodedSuperblob);
+										free(cdhashes);
+										free(sigInfosToAttach);
+										return -1;
 									}
-
-									free(curSigInfo->signature.fs_blob_start);
-									superblob = csd_superblob_encode(decodedSuperblob);
-									curSigInfo->signature.fs_blob_start = superblob;
-									curSigInfo->signature.fs_blob_size = OSSwapBigToHostInt32(superblob->length);
-
-									sigInfosToAttach[sigInfosToAttachCount++] = curSigInfo;
-								}
-								else {
-									// If the signature does not reside inside our own address space, there is nothing we can do
-									// Such a signature should have been caught by dyldhook so in reality this code path will probably never fire
-									csd_superblob_free(decodedSuperblob);
-									free(cdhashes);
-									free(sigInfosToAttach);
-									return -1;
 								}
 							}
-						}
 
-						cdhash_t cdhash;
-						csd_code_directory_calculate_hash(bestCDBlob, &cdhash);
-						if (!is_cdhash_trustcached(cdhash)) {
+							cdhash_t cdhash;
+							csd_code_directory_calculate_hash(bestCDBlob, &cdhash);
+							// Another temporary batch may release this hash before we attach.
 							memcpy(&cdhashes[cdhashesCount++], &cdhash, sizeof(cdhash_t));
 						}
 					}
+					csd_superblob_free(decodedSuperblob);
 				}
-				csd_superblob_free(decodedSuperblob);
 			}
 		}
-	}
 
-	if (cdhashesCount > 0) {
-		jb_trustcache_add_cdhashes(cdhashes, cdhashesCount);
-	}
-
-	int r = 0;
-	if (sigInfosToAttachCount > 0) {
-		// For every signature we have modified, we need to attach them to fd now
-		for (uint32_t i = 0; i < sigInfosToAttachCount; i++) {
-			struct siginfo *curSigInfo = sigInfosToAttach[i];
-			int fd_r = fd_attach_signature(fd, &curSigInfo->signature);
-			if (fd_r != 0) r = fd_r;
+		uint32_t batchIndex = 0;
+		bool batchAcquired = false;
+		if (cdhashesCount > 0) {
+			int batchResult = jb_trustcache_acquire_batch(&batchIndex);
+			if (batchResult != 0) {
+				r = batchResult;
+				break;
+			}
+			batchAcquired = true;
+			batchResult = jb_trustcache_add_batch_cdhashes(batchIndex, cdhashes, cdhashesCount);
+			if (batchResult != 0) {
+				jb_trustcache_release_batch(batchIndex);
+				r = batchResult;
+				break;
+			}
 		}
+
+		if (sigInfosToAttachCount > 0) {
+			// Attach every signature in this batch, including unmodified signatures
+			for (uint32_t i = 0; i < sigInfosToAttachCount; i++) {
+				struct siginfo *curSigInfo = sigInfosToAttach[i];
+				fsignatures_t signature = curSigInfo->signature;
+				CS_SuperBlob *superblob = NULL;
+				if (curSigInfo->source != SIGNATURE_SOURCE_ALLOCATION) {
+					superblob = siginfo_resolve_superblob(curSigInfo, pid, fd);
+					if (!superblob) {
+						r = -1;
+						continue;
+					}
+					signature.fs_blob_start = superblob;
+				}
+				int fd_r = fd_attach_signature(fd, &signature);
+				free(superblob);
+				if (fd_r != 0) r = fd_r;
+			}
+		}
+		if (batchAcquired) {
+			int batchResult = jb_trustcache_release_batch(batchIndex);
+			if (batchResult != 0) {
+				if (r == 0) r = batchResult;
+				break;
+			}
+		}
+		batchStart += batchCount;
 	}
-	
+
 	free(sigInfosToAttach);
 	free(cdhashes);
 	return r;
