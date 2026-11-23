@@ -9,6 +9,7 @@
 #include <util.h>
 #include <ptrauth.h>
 #include <libjailbreak/jbclient_xpc.h>
+#include <libjailbreak/jbclient_mach.h>
 #include <libjailbreak/codesign.h>
 #include <libjailbreak/jbroot.h>
 #include <libjailbreak/hookd.h>
@@ -352,6 +353,12 @@ int parse_dyldhook_jbinfo(char **jbRootPathOut, char **bootUUIDOut, char **sandb
 	return 0;
 }
 
+static int systemhook_prepare_patch_image(int fd)
+{
+	// trust_signatures attaches collected signatures even with attach=false.
+	return jbclient_mach_trust_file(fd, NULL, false);
+}
+
 __attribute__((constructor)) static void initializer(void)
 {
 	// Under normal circumstances, dyldhook will have already handled the check-in, so get the check-in information from the __jbinfo section
@@ -368,6 +375,8 @@ __attribute__((constructor)) static void initializer(void)
 			return;
 		}
 	}
+
+	litehook_set_image_prepare_callback(systemhook_prepare_patch_image);
 
 	// Unset DYLD_INSERT_LIBRARIES, but only if systemhook itself is the only thing contained in it
 	// Feeable attempt at making jailbreak detection harder
@@ -402,10 +411,12 @@ __attribute__((constructor)) static void initializer(void)
 		}
 	}
 
-	// Apply posix_spawn / execve hooks
+	struct litehook_function_hook spawnHooks[3];
+	size_t spawnHookCount = 0;
+	// Queue instruction hooks together; iOS 15 uses separate filter callbacks.
 	if (__builtin_available(iOS 16.0, *)) {
-		litehook_hook_function(__posix_spawn, __posix_spawn_hook);
-		litehook_hook_function(__execve,      __execve_hook);
+		spawnHooks[spawnHookCount++] = (struct litehook_function_hook){ __posix_spawn, __posix_spawn_hook };
+		spawnHooks[spawnHookCount++] = (struct litehook_function_hook){ __execve, __execve_hook };
 	}
 	else {
 		// On iOS 15 there is a way to hook posix_spawn and execve without doing instruction replacements
@@ -422,7 +433,12 @@ __attribute__((constructor)) static void initializer(void)
 	// This makes it so that library validation is also bypassed if someone calls fcntl in userspace to attach a signature manually
 	void *dyld___fcntl = litehook_find_symbol(get_dyld_mach_header(), "___fcntl");
 	extern int __fcntl(int fd, int op, ... /* arg */ );
-	litehook_hook_function(__fcntl, dyld___fcntl);
+	spawnHooks[spawnHookCount++] = (struct litehook_function_hook){ __fcntl, dyld___fcntl };
+	kern_return_t hookResult = litehook_batch_hook_function(spawnHooks, spawnHookCount);
+	if (hookResult != KERN_SUCCESS) {
+		fprintf(stderr, "systemhook: spawn/fcntl hook batch failed (%d)\n", hookResult);
+		return;
+	}
 
 	// Initialize stuff neccessary for sandbox_apply hook
 	gLibSandboxHandle = dlopen("/usr/lib/libsandbox.1.dylib", RTLD_FIRST | RTLD_LOCAL | RTLD_LAZY);
@@ -459,29 +475,36 @@ __attribute__((constructor)) static void initializer(void)
 			dlopen(JBROOT_PATH("/basebin/watchdoghook.dylib"), RTLD_NOW);
 		}
 
+		struct litehook_function_hook processHooks[8];
+		size_t processHookCount = 0;
 		// ptrace hook to allow attaching a debugger to processes that systemhook did not inject into
 		// e.g. allows attaching debugserver to an app where tweak injection has been disabled via choicy
 		// since we want to keep hooks minimal and debugserver is the only thing I can think of that would
 		// call ptrace and expect it to allow invalid pages, we only hook it in debugserver
 		// this check is a bit shit since we rely on the name of the binary, but who cares ¯\_(ツ)_/¯
 		if (string_has_suffix(gExecutablePath, "/debugserver")) {
-			litehook_hook_function(ptrace, ptrace_hook);
+			processHooks[processHookCount++] = (struct litehook_function_hook){ ptrace, ptrace_hook };
 		}
 
 #ifndef __arm64e__
 		// On arm64, writing to executable pages removes CS_VALID from the csflags of the process
 		// These hooks are neccessary to get the system to behave with this (since multiple system APIs check for CS_VALID and produce failures if it's not set)
 		// They are ugly but needed
-		litehook_hook_function(csops, csops_hook);
-		litehook_hook_function(csops_audittoken, csops_audittoken_hook);
+		processHooks[processHookCount++] = (struct litehook_function_hook){ csops, csops_hook };
+		processHooks[processHookCount++] = (struct litehook_function_hook){ csops_audittoken, csops_audittoken_hook };
 		if (__builtin_available(iOS 16.0, *)) {
-			litehook_hook_function(necp_match_policy, necp_match_policy_hook);
-			litehook_hook_function(necp_open, necp_open_hook);
-			litehook_hook_function(necp_client_action, necp_client_action_hook);
-			litehook_hook_function(necp_session_open, necp_session_open_hook);
-			litehook_hook_function(necp_session_action, necp_session_action_hook);
+			processHooks[processHookCount++] = (struct litehook_function_hook){ necp_match_policy, necp_match_policy_hook };
+			processHooks[processHookCount++] = (struct litehook_function_hook){ necp_open, necp_open_hook };
+			processHooks[processHookCount++] = (struct litehook_function_hook){ necp_client_action, necp_client_action_hook };
+			processHooks[processHookCount++] = (struct litehook_function_hook){ necp_session_open, necp_session_open_hook };
+			processHooks[processHookCount++] = (struct litehook_function_hook){ necp_session_action, necp_session_action_hook };
 		}
 #endif
+		hookResult = litehook_batch_hook_function(processHooks, processHookCount);
+		if (hookResult != KERN_SUCCESS) {
+			fprintf(stderr, "systemhook: process hook batch failed (%d)\n", hookResult);
+			return;
+		}
 		// Load tweaks if desired
 		// We can hardcode /var/jb here since if it doesn't exist, loading TweakLoader.dylib is not going to work anyways
 		if (should_enable_tweaks()) {

@@ -323,7 +323,7 @@ int cs_allow_invalid(uint64_t proc, bool emulateFully)
 						// Fugu15 Rootful
 						//proc_csflags_clear(proc, CS_EXEC_SET_ENFORCEMENT | CS_EXEC_SET_KILL | CS_EXEC_SET_HARD | CS_REQUIRE_LV | CS_ENFORCEMENT | CS_RESTRICT | CS_KILL | CS_HARD | CS_FORCED_LV);
 						//proc_csflags_set(proc, CS_DEBUGGED | CS_INVALID_ALLOWED | CS_GET_TASK_ALLOW);
-
+						pmap_cs_allow_invalid(pmap);
 						// XNU
 						proc_csflags_clear(proc, CS_KILL | CS_HARD);
 						proc_csflags_set(proc, CS_DEBUGGED);
@@ -336,7 +336,7 @@ int cs_allow_invalid(uint64_t proc, bool emulateFully)
 						kwritebuf(vm_map + koffsetof(vm_map, flags), &flags, sizeof(flags));
 					}
 					// For pmap_cs (arm64e) devices, this is enough to get unsigned code to run
-					pmap_cs_allow_invalid(pmap);
+					// pmap_cs_allow_invalid(pmap);
 				}
 			}
 		}

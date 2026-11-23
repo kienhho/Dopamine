@@ -34,6 +34,13 @@ bool gInEarlyBoot = true;
 
 void abort_with_reason(uint32_t reason_namespace, uint64_t reason_code, const char *reason_string, uint64_t reason_flags);
 extern void systemwide_domain_set_enabled(bool enabled);
+extern int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *siginfo, size_t siginfoSize, bool attach);
+
+static int launchdhook_prepare_patch_image(int fd)
+{
+	// Calling the local handler avoids an IPC round trip into launchd itself.
+	return systemwide_trust_file(NULL, fd, NULL, 0, false);
+}
 
 // Boot logo drawing invokes some IOKit stuff that seems to initialize os_log / asl
 // We need to temporarily set asl_enabled to false so that it will skip that initialization
@@ -139,6 +146,8 @@ __attribute__((constructor)) static void initializer(void)
 		abort_with_reason(7, 1, msg, 0);
 		return;
 	}
+
+	litehook_set_image_prepare_callback(launchdhook_prepare_patch_image);
 
 	if (jbupdatePrevVersion && jbupdateNewVersion) {
 		jbupdate_finalize_stage2(jbupdatePrevVersion, jbupdateNewVersion);
