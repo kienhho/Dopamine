@@ -12,4 +12,4 @@
 	url = https://github.com/opa334/opainject
 [submodule "BaseBin/_external/modules/litehook"]
 	path = BaseBin/_external/modules/litehook
-	url = git@github.com:YOUR_USER/litehook.git
+	url = https://github.com/kienhho/litehook
