@@ -334,9 +334,8 @@ int cs_allow_invalid(uint64_t proc, bool emulateFully)
 						flags.switch_protect = false;
 						flags.cs_debugged = true;
 						kwritebuf(vm_map + koffsetof(vm_map, flags), &flags, sizeof(flags));
-
-						pmap_cs_allow_invalid(pmap);
-					}					
+					}	
+					pmap_cs_allow_invalid(pmap);				
 				}
 			}
 		}
