@@ -201,6 +201,9 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 
 		// Make /var/jb/var/mobile writable
 		sandbox_extension_issue_file_to_process("com.apple.app-sandbox.read-write", JBROOT_PATH("/var/mobile"), 0, *processToken),
+
+		// Generated litehook images also inherit the executable grant above.
+		sandbox_extension_issue_file_to_process("com.apple.app-sandbox.read-write", JBROOT_PATH("/tmp"), 0, *processToken),
 	};
 	int sandboxExtensionsCount = sizeof(sandboxExtensionsArr) / sizeof(char *);
 	*sandboxExtensionsOut = combine_strings('|', sandboxExtensionsArr, sandboxExtensionsCount);
