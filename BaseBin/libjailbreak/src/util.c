@@ -792,8 +792,14 @@ int fd_attach_signature(int fd, fsignatures_t *signature)
 	// (For libraries this works without any fix up, since this is how dyld attaches them normally)
 	lseek(fd, 0, SEEK_SET);
 	int r = fcntl(fd, F_ADDSIGS, signature);
+	int attachErrno = errno;
 	lseek(fd, origPos, SEEK_SET);
-	if (r != 0) return r;
+	if (r != 0) {
+		fprintf(stderr, "fd_attach_signature: F_ADDSIGS failed (pid=%d, fd=%d, slice=%lld, errno=%d: %s)\n",
+			getpid(), fd, (long long)signature->fs_file_start, attachErrno, strerror(attachErrno));
+		errno = attachErrno;
+		return r;
+	}
 
 	// Find cs_blob of the signature that we just attached
 	uint64_t vnode = proc_get_vnode_for_fd(proc_self(), fd);
@@ -810,7 +816,11 @@ int fd_attach_signature(int fd, fsignatures_t *signature)
 		} while (((cs_blob = kread_ptr(cs_blob + koffsetof(cs_blob, next))) != 0));
 	}
 
-	if (!target_cs_blob) return -4;
+	if (!target_cs_blob) {
+		fprintf(stderr, "fd_attach_signature: F_ADDSIGS succeeded but no cs_blob matched (pid=%d, fd=%d, slice=%lld)\n",
+			getpid(), fd, (long long)signature->fs_file_start);
+		return -4;
+	}
 
 	// By default signatures attached via fcntl have cpu_type=-1, cpu_subtype=-1
 	// In order to make the binary actually execute, we need to set them to the right values ourselves
