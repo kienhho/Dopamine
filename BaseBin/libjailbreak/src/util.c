@@ -795,8 +795,7 @@ int fd_attach_signature(int fd, fsignatures_t *signature)
 	int attachErrno = errno;
 	lseek(fd, origPos, SEEK_SET);
 	if (r != 0) {
-		fprintf(stderr, "fd_attach_signature: F_ADDSIGS failed (pid=%d, fd=%d, slice=%lld, errno=%d: %s)\n",
-			getpid(), fd, (long long)signature->fs_file_start, attachErrno, strerror(attachErrno));
+		fprintf(stderr, "fd_attach_signature: %s\n", strerror(attachErrno));
 		errno = attachErrno;
 		return r;
 	}
@@ -817,8 +816,7 @@ int fd_attach_signature(int fd, fsignatures_t *signature)
 	}
 
 	if (!target_cs_blob) {
-		fprintf(stderr, "fd_attach_signature: F_ADDSIGS succeeded but no cs_blob matched (pid=%d, fd=%d, slice=%lld)\n",
-			getpid(), fd, (long long)signature->fs_file_start);
+		fprintf(stderr, "fd_attach_signature: cs_blob not found\n");
 		return -4;
 	}
 
