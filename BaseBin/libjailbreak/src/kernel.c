@@ -319,20 +319,20 @@ int cs_allow_invalid(uint64_t proc, bool emulateFully)
 				uint64_t pmap = kread_ptr(vm_map + koffsetof(vm_map, pmap));
 				if (pmap) {
 					// No longer allow WX on every processes with new hook
-					if (emulateFully || !host_is_arm64e()) {
+					if (emulateFully) {
 						// XNU
-						proc_csflags_clear(proc, CS_KILL | CS_HARD);
 						proc_csflags_set(proc, CS_DEBUGGED);
 					}	
-					if (emulateFully) {
-						task_set_memory_ownership_transfer(task, true);
-						vm_map_flags flags = { 0 };
-						kreadbuf(vm_map + koffsetof(vm_map, flags), &flags, sizeof(flags));
-						flags.switch_protect = false;
-						flags.cs_debugged = true;
-						kwritebuf(vm_map + koffsetof(vm_map, flags), &flags, sizeof(flags));
-					}
-					pmap_cs_allow_invalid(pmap);				
+					proc_csflags_clear(proc, CS_KILL | CS_HARD);
+					// if (emulateFully) {
+					// 	task_set_memory_ownership_transfer(task, true);
+					// 	vm_map_flags flags = { 0 };
+					// 	kreadbuf(vm_map + koffsetof(vm_map, flags), &flags, sizeof(flags));
+					// 	flags.switch_protect = false;
+					// 	flags.cs_debugged = true;
+					// 	kwritebuf(vm_map + koffsetof(vm_map, flags), &flags, sizeof(flags));
+					// }
+					// pmap_cs_allow_invalid(pmap);				
 				}
 			}
 		}
