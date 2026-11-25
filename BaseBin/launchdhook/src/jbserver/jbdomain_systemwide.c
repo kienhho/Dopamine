@@ -91,7 +91,6 @@ static int systemwide_get_boot_uuid(char **bootUUIDOut)
 
 int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *siginfo, size_t siginfoSize, bool attach)
 {
-	// Retained for RPC compatibility; trust_signatures always attaches now.
 	(void)attach;
 	if (siginfo && siginfoSize != sizeof(struct siginfo)) return -1;
 
@@ -111,6 +110,10 @@ int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *
 	}
 
 	if (fd < 0) return -1;
+	if (fd_already_signed(fd)) {
+		close(fd);
+		return 0;
+	}
 
 	struct statfs fsb;
 	int fsr = fstatfs(fd, &fsb);

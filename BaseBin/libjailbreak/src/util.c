@@ -779,6 +779,17 @@ uint64_t proc_get_vnode_for_fd(uint64_t proc, int fd)
 	return kread_ptr(fileglob + koffsetof(fileglob, data));
 }
 
+bool fd_already_signed(int fd)
+{
+	if (fd < 0) return false;
+
+	uint64_t vnode = proc_get_vnode_for_fd(proc_self(), fd);
+	if (!vnode) return false;
+	uint64_t ubc_info = kread_ptr(vnode + koffsetof(vnode, un));
+	if (!ubc_info) return false;
+	return kread_ptr(ubc_info + koffsetof(ubc_info, cs_blobs)) != 0;
+}
+
 int fd_attach_signature(int fd, fsignatures_t *signature)
 {
 	off_t origPos = lseek(fd, 0, SEEK_CUR);

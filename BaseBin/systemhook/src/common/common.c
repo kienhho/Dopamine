@@ -179,7 +179,8 @@ static int spawn_exec_hook_common(bool isExec,
 	kSpawnConfig spawnConfig = spawn_config_for_executable(path, argv);
 
 	if (spawnConfig & kSpawnConfigTrust) {
-		// Upload binary to trustcache if needed
+		// Trust patched dyld before the executable.
+		trust_binary(JBROOT_PATH("/basebin/.fakelib/dyld"));
 		trust_binary(path);
 	}
 
