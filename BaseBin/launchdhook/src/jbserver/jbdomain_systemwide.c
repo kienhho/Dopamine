@@ -225,6 +225,7 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	// CS_ADHOC needs to be forced in dyld's fcntl hook on SPTM devices
 	*forceCSAdhocOut = (ksymbol(SPTMArgs) != 0);
 
+	// These hooks use Ellekit so requires invalid page
 	if (fullyDebugged ||
 		!strcmp(procPath, "/usr/libexec/watchdogd") ||
 		!strcmp(procPath, "/usr/sbin/cfprefsd") ||

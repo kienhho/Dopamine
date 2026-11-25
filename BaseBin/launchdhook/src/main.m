@@ -155,8 +155,6 @@ __attribute__((constructor)) static void initializer(void)
 		unsetenv("JBUPDATE_NEW_VERSION");
 	}
 
-	cs_allow_invalid(proc_self(), false);
-
 	if (__builtin_available(iOS 19.0, *)) {
 		// On iOS 26+, hooks have to be applied through hookd
 		hookd_provider_init();
