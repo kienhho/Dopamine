@@ -91,6 +91,8 @@ static int systemwide_get_boot_uuid(char **bootUUIDOut)
 
 int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *siginfo, size_t siginfoSize, bool attach)
 {
+	// Retained for RPC compatibility; trust_signatures always attaches now.
+	(void)attach;
 	if (siginfo && siginfoSize != sizeof(struct siginfo)) return -1;
 
 	pid_t pid = -1;
@@ -135,19 +137,6 @@ int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *
 
 	if (sigInfoCount > 0) {
 		r = trust_signatures(pid, fd, sigInfos, sigInfoCount);
-
-		// Attach if requested
-		if (attach) {
-			for (uint32_t i = 0; i < sigInfoCount; i++) {
-				if (sigInfos[i].source != SIGNATURE_SOURCE_ALLOCATION) {
-					sigInfos[i].signature.fs_blob_start = siginfo_resolve_superblob(&sigInfos[i], pid, fd);
-					sigInfos[i].source = SIGNATURE_SOURCE_ALLOCATION;
-				}
-
-				int rr = fcntl(fd, F_ADDSIGS, &sigInfos[i].signature);
-				if (rr != 0) r = rr;
-			}
-		}
 
 		// Free allocated signatures
 		for (uint32_t i = 0; i < sigInfoCount; i++) {

@@ -1,6 +1,9 @@
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <mach-o/loader.h>
+#include <mach-o/fat.h>
 #include <libjailbreak/util.h>
-#include <libjailbreak/trustcache.h>
 #include <libjailbreak/kcall_arm64.h>
 #include <libjailbreak/signatures.h>
 #include <libjailbreak/basebin_gen.h>
@@ -28,32 +31,53 @@ int jbupdate_basebin(const char *basebinTarPath)
 		}
 		NSString *tmpBasebinPath = [tmpExtractionPath stringByAppendingPathComponent:@"basebin"];
 
-		// Update basebin trustcache
-		NSString *trustcachePath = [tmpBasebinPath stringByAppendingPathComponent:@"basebin.tc"];
-		if (![[NSFileManager defaultManager] fileExistsAtPath:trustcachePath]) return 3;
-		trustcache_file_v1 *basebinTcFile = NULL;
-		if (trustcache_file_build_from_path(trustcachePath.fileSystemRepresentation, &basebinTcFile) != 0) {
-			[[NSFileManager defaultManager] removeItemAtPath:tmpExtractionPath error:nil];
-			return 4;
-		}
-		r = trustcache_file_upload_with_uuid(basebinTcFile, BASEBIN_TRUSTCACHE_UUID);
-		free(basebinTcFile);
-		if (r != 0) {
-			[[NSFileManager defaultManager] removeItemAtPath:tmpExtractionPath error:nil];
-			return 5;
-		}
-
 		// Replace basebin content
 		NSArray *newBasebinContents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:tmpBasebinPath error:nil];
+		if (!newBasebinContents) {
+			[[NSFileManager defaultManager] removeItemAtPath:tmpExtractionPath error:nil];
+			return 3;
+		}
 		for (NSString *basebinItem in newBasebinContents) {
 			NSString *newBasebinPath = [tmpBasebinPath stringByAppendingPathComponent:basebinItem];
 			NSString *oldBasebinPath = [JBROOT_PATH(@"/basebin") stringByAppendingPathComponent:basebinItem];
 			if ([[NSFileManager defaultManager] fileExistsAtPath:oldBasebinPath]) {
 				[[NSFileManager defaultManager] removeItemAtPath:oldBasebinPath error:nil];
 			}
-			[[NSFileManager defaultManager] copyItemAtPath:newBasebinPath toPath:oldBasebinPath error:nil];
+			if (![[NSFileManager defaultManager] copyItemAtPath:newBasebinPath toPath:oldBasebinPath error:nil]) {
+				[[NSFileManager defaultManager] removeItemAtPath:tmpExtractionPath error:nil];
+				return 4;
+			}
 		}
 		[[NSFileManager defaultManager] removeItemAtPath:tmpExtractionPath error:nil];
+
+		// Trust installed files, since attached signatures do not carry over when copying.
+		NSURL *basebinURL = [NSURL fileURLWithPath:JBROOT_PATH(@"/basebin") isDirectory:YES];
+		__block BOOL enumerationFailed = NO;
+		NSDirectoryEnumerator<NSURL *> *enumerator = [[NSFileManager defaultManager] enumeratorAtURL:basebinURL includingPropertiesForKeys:@[NSURLIsRegularFileKey] options:0 errorHandler:^BOOL(NSURL *url, NSError *error) {
+			enumerationFailed = YES;
+			return NO;
+		}];
+		if (!enumerator) return 5;
+		for (NSURL *fileURL in enumerator) {
+			NSNumber *isRegularFile = nil;
+			if (![fileURL getResourceValue:&isRegularFile forKey:NSURLIsRegularFileKey error:nil]) return 5;
+			if (!isRegularFile.boolValue) continue;
+
+			const char *path = fileURL.fileSystemRepresentation;
+			int fd = open(path, O_RDONLY);
+			if (fd < 0) return 5;
+			uint32_t magic = 0;
+			ssize_t bytesRead = read(fd, &magic, sizeof(magic));
+			close(fd);
+			if (bytesRead < 0) return 5;
+			if (bytesRead != sizeof(magic)) continue;
+			if (magic != MH_MAGIC && magic != MH_CIGAM && magic != MH_MAGIC_64 && magic != MH_CIGAM_64 &&
+				magic != FAT_MAGIC && magic != FAT_CIGAM && magic != FAT_MAGIC_64 && magic != FAT_CIGAM_64) continue;
+
+			r = trust_signatures_by_path(path);
+			if (r != 0) return 5;
+		}
+		if (enumerationFailed) return 5;
 
 		// Patch basebin plists
 		NSURL *basebinDaemonsURL = [NSURL fileURLWithPath:JBROOT_PATH(@"/basebin/LaunchDaemons")];
@@ -227,34 +251,12 @@ void jbupdate_finalize_stage2(const char *prevVersion, const char *newVersion)
 		abort_with_reason(7, 1, msg, 0);
 	}
 
-	// Update dyld trustcache
-	cdhash_t *cdhashes = NULL;
-	uint32_t cdhashesCount = 0;
-	file_collect_untrusted_cdhashes_by_path(JBROOT_PATH("/basebin/.fakelib/dyld"), &cdhashes, &cdhashesCount);
-
-	if (cdhashesCount > 1) {
+	// Trust patched dyld signatures
+	r = trust_signatures_by_path(JBROOT_PATH("/basebin/.fakelib/dyld"));
+	if (r != 0) {
 		char msg[4000];
-		snprintf(msg, 4000, "Dopamine: Updating patched dyld failed due to unexpected amount of cdhashes (%d), cannot continue.", cdhashesCount);
+		snprintf(msg, 4000, "Dopamine: Trusting patched dyld signatures failed with error %d, cannot continue.", r);
 		abort_with_reason(7, 1, msg, 0);
-	}
-	else if (cdhashesCount == 1) {
-		trustcache_file_v1 *dyldTCFile = NULL;
-		r = trustcache_file_build_from_cdhashes(cdhashes, cdhashesCount, &dyldTCFile);
-		free(cdhashes);
-		if (r != 0) {
-			char msg[4000];
-			snprintf(msg, 4000, "Dopamine: Building dyld trustcache failed with error %d, cannot continue.", r);
-			abort_with_reason(7, 1, msg, 0);
-		}
-
-		r = trustcache_file_upload_with_uuid(dyldTCFile, DYLD_TRUSTCACHE_UUID);
-		if (r != 0) {
-			char msg[4000];
-			snprintf(msg, 4000, "Dopamine: Updating dyld trustcache failed with error %d, cannot continue.", r);
-			abort_with_reason(7, 1, msg, 0);
-		}
-
-		free(dyldTCFile);
 	}
 
 	JBFixMobilePermissions();

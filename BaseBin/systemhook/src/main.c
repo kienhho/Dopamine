@@ -355,7 +355,6 @@ int parse_dyldhook_jbinfo(char **jbRootPathOut, char **bootUUIDOut, char **sandb
 
 static int systemhook_prepare_patch_image(int fd)
 {
-	// trust_signatures attaches collected signatures even with attach=false.
 	return jbclient_mach_trust_file(fd, NULL, false);
 }
 

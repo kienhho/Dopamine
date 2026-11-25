@@ -367,3 +367,24 @@ int trust_signatures(int pid, int fd, struct siginfo *sigInfos, uint32_t sigInfo
 	free(cdhashes);
 	return r;
 }
+
+int trust_signatures_by_path(const char *path)
+{
+	int fd = open(path, O_RDONLY);
+	if (fd < 0) return -1;
+
+	struct siginfo *sigInfos = NULL;
+	uint32_t sigInfoCount = 0;
+	file_collect_signatures(fd, &sigInfos, &sigInfoCount);
+
+	int r = trust_signatures(getpid(), fd, sigInfos, sigInfoCount);
+
+	for (uint32_t i = 0; i < sigInfoCount; i++) {
+		if (sigInfos[i].source == SIGNATURE_SOURCE_ALLOCATION) {
+			free(sigInfos[i].signature.fs_blob_start);
+		}
+	}
+	free(sigInfos);
+	close(fd);
+	return r;
+}

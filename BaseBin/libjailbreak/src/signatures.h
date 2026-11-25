@@ -24,4 +24,5 @@ void file_collect_untrusted_cdhashes_by_path(const char *path, cdhash_t **cdhash
 void file_collect_signatures(int fd, struct siginfo **sigInfosOut, uint32_t *sigInfoCountOut);
 CS_SuperBlob *siginfo_resolve_superblob(struct siginfo *siginfo, int pid, int fd);
 int trust_signatures(int pid, int fd, struct siginfo *sigInfos, uint32_t sigInfoCount);
+int trust_signatures_by_path(const char *path);
 #endif

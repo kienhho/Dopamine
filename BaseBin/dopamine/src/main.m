@@ -105,27 +105,9 @@ void activate_basebin(NSString *basebinPath)
 
 	NSString *fakelibDyldPath = [basebinPath stringByAppendingPathComponent:@".fakelib/dyld"];
 
-	cdhash_t *cdhashes = NULL;
-	uint32_t cdhashesCount = 0;
-	file_collect_untrusted_cdhashes_by_path(fakelibDyldPath.fileSystemRepresentation, &cdhashes, &cdhashesCount);
-	if (cdhashesCount != 1) {
-		printf("Activating basebin failed: cdhashesCount != 1\n");
-		exit(-1);
-	}
-	
-	trustcache_file_v1 *dyldTCFile = NULL;
-	int r = trustcache_file_build_from_cdhashes(cdhashes, cdhashesCount, &dyldTCFile);
-	free(cdhashes);
-	if (r == 0) {
-		r = trustcache_file_upload_with_uuid(dyldTCFile, DYLD_TRUSTCACHE_UUID);
-		free(dyldTCFile);
-		if (r != 0) {
-			printf("Activating basebin failed: trustcache_file_upload_with_uuid returned %d\n", r);
-			exit(-1);
-		}
-	}
-	else {
-		printf("Activating basebin failed: trustcache_file_build_from_cdhashes returned %d\n", r);
+	int r = trust_signatures_by_path(fakelibDyldPath.fileSystemRepresentation);
+	if (r != 0) {
+		printf("Activating basebin failed: trust_signatures_by_path returned %d\n", r);
 		exit(-1);
 	}
 
