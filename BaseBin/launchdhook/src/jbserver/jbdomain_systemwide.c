@@ -225,8 +225,13 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	// CS_ADHOC needs to be forced in dyld's fcntl hook on SPTM devices
 	*forceCSAdhocOut = (ksymbol(SPTMArgs) != 0);
 
-	// Allow invalid pages
-	cs_allow_invalid(proc, fullyDebugged);
+	if (fullyDebugged ||
+		!strcmp(procPath, "/usr/libexec/watchdogd") ||
+		!strcmp(procPath, "/usr/sbin/cfprefsd") ||
+		!strcmp(procPath, "/System/Library/CoreServices/SpringBoard.app/SpringBoard") ||
+		!strcmp(procPath, "/usr/libexec/lsd")) {
+		cs_allow_invalid(proc, fullyDebugged);
+	}
 
 	// Fix setuid
 	struct stat sb;
