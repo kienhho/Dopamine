@@ -226,12 +226,8 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	*forceCSAdhocOut = (ksymbol(SPTMArgs) != 0);
 
 	// These hooks use Ellekit so requires invalid page
-	if (fullyDebugged ||
-		!strcmp(procPath, "/usr/libexec/watchdogd") ||
-		!strcmp(procPath, "/usr/sbin/cfprefsd") ||
-		!strcmp(procPath, "/System/Library/CoreServices/SpringBoard.app/SpringBoard") ||
-		!strcmp(procPath, "/usr/libexec/lsd")) {
-		cs_allow_invalid(proc, fullyDebugged);
+	if (fullyDebugged) {
+		cs_allow_invalid(proc, true);
 	}
 
 	// Fix setuid
