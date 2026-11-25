@@ -489,22 +489,48 @@ kern_return_t litehook_hook_memory_hookd(void *target, void *source, size_t sour
 	return kr;
 }
 
-kern_return_t mach_vm_protect_fixed(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t new_protection)
-{
-	kern_return_t rv;
+int (*mach_vm_protect_set_process_debugged)(uint64_t pid, bool fullyDebugged) = jbclient_platform_set_process_debugged;
+static _Thread_local bool gProtectRequestInProgress;
 
-	bool skipped = false;
-	if (!skipped) {
-		if ((new_protection & VM_PROT_EXECUTE) || (new_protection & VM_PROT_COPY)) {
-			rv = hookd_vm_protect(task, address, size, set_maximum, new_protection);
-		}
-		else {
-			rv = _kernelrpc_mach_vm_protect_trap(task, address, size, set_maximum, new_protection);
-			if (rv == MACH_SEND_INVALID_DEST) {
-				rv = _kernelrpc_mach_vm_protect(task, address, size, set_maximum, new_protection);
-			}
-		}
+static kern_return_t mach_vm_protect_original(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection)
+{
+	kern_return_t kr = _kernelrpc_mach_vm_protect_trap(task, address, size, set_maximum, protection);
+	if (kr == MACH_SEND_INVALID_DEST) {
+		kr = _kernelrpc_mach_vm_protect(task, address, size, set_maximum, protection);
+	}
+	return kr;
+}
+
+static kern_return_t mach_vm_protect_fixed_common(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection, bool useHookd)
+{
+	if (gProtectRequestInProgress) {
+		return mach_vm_protect_original(task, address, size, set_maximum, protection);
+	}
+	gProtectRequestInProgress = true;
+	pid_t pid = 0;
+	if (task == mach_task_self_) pid = getpid();
+	else if (pid_for_task(task, &pid) != KERN_SUCCESS) pid = 0;
+	if (pid > 0) {
+		int result = mach_vm_protect_set_process_debugged(pid, false);
+		if (result != 0) fprintf(stderr, "vm_protect: debug request failed (%d)\n", result);
 	}
 
-	return rv;
+	kern_return_t kr;
+	if (useHookd && (protection & (VM_PROT_EXECUTE | VM_PROT_COPY))) {
+		kr = hookd_vm_protect(task, address, size, set_maximum, protection);
+	} else {
+		kr = mach_vm_protect_original(task, address, size, set_maximum, protection);
+	}
+	gProtectRequestInProgress = false;
+	return kr;
+}
+
+kern_return_t mach_vm_protect_fixed(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection)
+{
+	return mach_vm_protect_fixed_common(task, address, size, set_maximum, protection, false);
+}
+
+kern_return_t mach_vm_protect_fixed_19(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection)
+{
+	return mach_vm_protect_fixed_common(task, address, size, set_maximum, protection, true);
 }

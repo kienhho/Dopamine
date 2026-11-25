@@ -388,6 +388,8 @@ __attribute__((constructor)) static void initializer(void)
 	}
 
 	// On iOS 26+, hooks have to be applied through hookd
+	void *protectHook = mach_vm_protect_fixed;
+	bool enableHookdExternal = false;
 	if (__builtin_available(iOS 19.0, *)) {
 
 		// If available, use jbclient_mach_hookd_send_msg inside dyld instead...
@@ -405,11 +407,15 @@ __attribute__((constructor)) static void initializer(void)
 		}
 
 		if (process_requires_hookd()) {
-			litehook_hook_memory = litehook_hook_memory_hookd;
-			litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed);
-			init_hookd_external_support();
+			protectHook = mach_vm_protect_fixed_19;
+			enableHookdExternal = true;
 		}
 	}
+	if (litehook_hook_function(mach_vm_protect, protectHook) != KERN_SUCCESS) {
+		fprintf(stderr, "systemhook: vm_protect hook failed\n");
+		return;
+	}
+	if (enableHookdExternal) init_hookd_external_support();
 
 	struct litehook_function_hook spawnHooks[3];
 	size_t spawnHookCount = 0;

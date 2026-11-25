@@ -34,7 +34,7 @@ static const struct jb_memory_hooks gMemoryHooks = {
 	.version = JB_MEMORY_HOOKS_VERSION,
 	.size = sizeof(struct jb_memory_hooks),
 	.patch_code = patch_code,
-	.protect = mach_vm_protect_fixed,
+	.protect = mach_vm_protect_fixed_19,
 };
 
 void init_memory_hooks(void)

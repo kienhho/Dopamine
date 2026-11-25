@@ -34,6 +34,7 @@ bool gInEarlyBoot = true;
 
 void abort_with_reason(uint32_t reason_namespace, uint64_t reason_code, const char *reason_string, uint64_t reason_flags);
 extern void systemwide_domain_set_enabled(bool enabled);
+extern int platform_set_process_debugged(uint64_t pid, bool fullyDebugged);
 extern int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *siginfo, size_t siginfoSize, bool attach);
 
 static int launchdhook_prepare_patch_image(int fd)
@@ -148,6 +149,7 @@ __attribute__((constructor)) static void initializer(void)
 	}
 
 	litehook_set_image_prepare_callback(launchdhook_prepare_patch_image);
+	mach_vm_protect_set_process_debugged = platform_set_process_debugged;
 
 	if (jbupdatePrevVersion && jbupdateNewVersion) {
 		jbupdate_finalize_stage2(jbupdatePrevVersion, jbupdateNewVersion);
@@ -156,11 +158,11 @@ __attribute__((constructor)) static void initializer(void)
 	}
 
 	if (__builtin_available(iOS 19.0, *)) {
-		// On iOS 26+, hooks have to be applied through hookd
 		hookd_provider_init();
-		litehook_hook_memory = litehook_hook_memory_hookd;
-		litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed);
+		litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed_19);
 		init_hookd_external_support();
+	} else {
+		litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed);
 	}
 
 	initXPCHooks();
