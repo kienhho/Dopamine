@@ -84,6 +84,15 @@ int __posix_spawn_hook(pid_t *restrict pid, const char *restrict path,
 
 			hookd_provider_teardown();
 
+			// Refresh signatures before mounting fakelib, spawning boomerang, or re-executing launchd.
+			int trustResult = jb_trust_basebin();
+			if (trustResult != 0) {
+				char msg[1000];
+				snprintf(msg, sizeof(msg), "Failed trusting basebin before userspace reboot (error %d).", trustResult);
+				abort_with_reason(7, 1, msg, 0);
+				return trustResult;
+			}
+
 			// If the jailbreak is currently hidden, fakelib is not mounted
 			// It needs to be mounted to regain launchd code execution after the userspace reboot
 			ensure_fakelib_mounted();

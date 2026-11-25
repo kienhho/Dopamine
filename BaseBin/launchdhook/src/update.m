@@ -14,6 +14,42 @@
 
 void abort_with_reason(uint32_t reason_namespace, uint64_t reason_code, const char *reason_string, uint64_t reason_flags);
 
+int jb_trust_basebin(void)
+{
+	@autoreleasepool {
+		// Trust basebin files before launching helpers or replacing launchd.
+		NSURL *basebinURL = [NSURL fileURLWithPath:JBROOT_PATH(@"/basebin") isDirectory:YES];
+		__block BOOL enumerationFailed = NO;
+		NSDirectoryEnumerator<NSURL *> *enumerator = [[NSFileManager defaultManager] enumeratorAtURL:basebinURL includingPropertiesForKeys:@[NSURLIsRegularFileKey] options:0 errorHandler:^BOOL(NSURL *url, NSError *error) {
+			enumerationFailed = YES;
+			return NO;
+		}];
+		if (!enumerator) return 5;
+		for (NSURL *fileURL in enumerator) {
+			NSNumber *isRegularFile = nil;
+			if (![fileURL getResourceValue:&isRegularFile forKey:NSURLIsRegularFileKey error:nil]) return 5;
+			if (!isRegularFile.boolValue) continue;
+
+			const char *path = fileURL.fileSystemRepresentation;
+			int fd = open(path, O_RDONLY);
+			if (fd < 0) return 5;
+			uint32_t magic = 0;
+			ssize_t bytesRead = read(fd, &magic, sizeof(magic));
+			close(fd);
+			if (bytesRead < 0) return 5;
+			if (bytesRead != sizeof(magic)) continue;
+			if (magic != MH_MAGIC && magic != MH_CIGAM && magic != MH_MAGIC_64 && magic != MH_CIGAM_64 &&
+				magic != FAT_MAGIC && magic != FAT_CIGAM && magic != FAT_MAGIC_64 && magic != FAT_CIGAM_64) continue;
+
+			int r = trust_signatures_by_path(path);
+			if (r != 0) return 5;
+		}
+		if (enumerationFailed) return 5;
+
+		return trust_signatures_by_path(JBROOT_PATH("/basebin/.fakelib/dyld"));
+	}
+}
+
 int jbupdate_basebin(const char *basebinTarPath)
 {
 	@autoreleasepool {
@@ -50,34 +86,8 @@ int jbupdate_basebin(const char *basebinTarPath)
 		}
 		[[NSFileManager defaultManager] removeItemAtPath:tmpExtractionPath error:nil];
 
-		// Trust installed files, since attached signatures do not carry over when copying.
-		NSURL *basebinURL = [NSURL fileURLWithPath:JBROOT_PATH(@"/basebin") isDirectory:YES];
-		__block BOOL enumerationFailed = NO;
-		NSDirectoryEnumerator<NSURL *> *enumerator = [[NSFileManager defaultManager] enumeratorAtURL:basebinURL includingPropertiesForKeys:@[NSURLIsRegularFileKey] options:0 errorHandler:^BOOL(NSURL *url, NSError *error) {
-			enumerationFailed = YES;
-			return NO;
-		}];
-		if (!enumerator) return 5;
-		for (NSURL *fileURL in enumerator) {
-			NSNumber *isRegularFile = nil;
-			if (![fileURL getResourceValue:&isRegularFile forKey:NSURLIsRegularFileKey error:nil]) return 5;
-			if (!isRegularFile.boolValue) continue;
-
-			const char *path = fileURL.fileSystemRepresentation;
-			int fd = open(path, O_RDONLY);
-			if (fd < 0) return 5;
-			uint32_t magic = 0;
-			ssize_t bytesRead = read(fd, &magic, sizeof(magic));
-			close(fd);
-			if (bytesRead < 0) return 5;
-			if (bytesRead != sizeof(magic)) continue;
-			if (magic != MH_MAGIC && magic != MH_CIGAM && magic != MH_MAGIC_64 && magic != MH_CIGAM_64 &&
-				magic != FAT_MAGIC && magic != FAT_CIGAM && magic != FAT_MAGIC_64 && magic != FAT_CIGAM_64) continue;
-
-			r = trust_signatures_by_path(path);
-			if (r != 0) return 5;
-		}
-		if (enumerationFailed) return 5;
+		r = jb_trust_basebin();
+		if (r != 0) return 5;
 
 		// Patch basebin plists
 		NSURL *basebinDaemonsURL = [NSURL fileURLWithPath:JBROOT_PATH(@"/basebin/LaunchDaemons")];
