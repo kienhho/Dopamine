@@ -23,6 +23,7 @@
 #define LAUNCHCTL_BUNDLED_VERSION @"1:1.2.0"
 
 static NSDictionary *gBundledPackages = @{
+    @"ellekit" : @"1.5",
     @"libkrw0-dopamine" : LIBKRW_DOPAMINE_BUNDLED_VERSION,
     @"libroot-dopamine" : LIBROOT_DOPAMINE_BUNDLED_VERSION,
     @"dopamine-basebin-link" : BASEBIN_LINK_BUNDLED_VERSION,
@@ -548,12 +549,13 @@ NSString *const bootstrapErrorDomain = @"BootstrapErrorDomain";
     BOOL shouldInstallLibroot = [self shouldInstallPackage:@"libroot-dopamine"];
     BOOL shouldInstallLibkrw = [self shouldInstallPackage:@"libkrw0-dopamine"];
     BOOL shouldInstallBasebinLink = [self shouldInstallPackage:@"dopamine-basebin-link"];
+    BOOL shouldInstallEllekit = [self shouldInstallPackage:@"ellekit"];
     BOOL shouldInstallLaunchctl = NO;
     if (__builtin_available(iOS 19.0, *)) {
         shouldInstallLaunchctl = [self shouldInstallPackage:@"launchctl"];
     }
     
-    if (shouldInstallLibroot || shouldInstallLibkrw || shouldInstallBasebinLink || shouldInstallLaunchctl) {
+    if (shouldInstallLibroot || shouldInstallLibkrw || shouldInstallBasebinLink || shouldInstallLaunchctl || shouldInstallEllekit) {
         [[DOUIManager sharedInstance] sendLog:@"Updating Bundled Packages" debug:NO];
 
         if (shouldInstallLaunchctl) {
@@ -574,6 +576,12 @@ NSString *const bootstrapErrorDomain = @"BootstrapErrorDomain";
             if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install the libkrw plugin: %d\n", r]}];
         }
         
+        if (shouldInstallEllekit) {
+            NSString *ellekitPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"ellekit_1.5_iphoneos-arm64-wxless.deb"];
+            int r = [self installPackage:ellekitPath];
+            if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install ElleKit: %d\n", r]}];
+        }
+
         if (shouldInstallBasebinLink) {
             // Clean symlinks from earlier Dopamine versions
             if ([self fileOrSymlinkExistsAtPath:JBROOT_PATH(@"/usr/bin/opainject")]) {

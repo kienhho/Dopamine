@@ -7,13 +7,9 @@
 
 #import "DOSceneDelegate.h"
 #import "DONavigationController.h"
-#import "DOEnvironmentManager.h"
-#import <libjailbreak/jbclient_xpc.h>
-#import <UserNotifications/UserNotifications.h>
 
-@interface DOSceneDelegate () <UNUserNotificationCenterDelegate>
+@interface DOSceneDelegate ()
 
-@property(nonatomic) BOOL schedulingCompatibilityNotice;
 
 @end
 
@@ -24,7 +20,6 @@
     window.rootViewController = [[DONavigationController alloc] init];
     [window makeKeyAndVisible];
     self.window = window;
-    [UNUserNotificationCenter currentNotificationCenter].delegate = self;
 }
 
 + (void)relaunch
@@ -55,42 +50,6 @@
 
 
 - (void)sceneDidBecomeActive:(UIScene *)scene {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (![DOEnvironmentManager sharedManager].isJailbroken ||
-            self.schedulingCompatibilityNotice ||
-            jbclient_jbsettings_get_bool("wxCompatibilityNoticeAcknowledged") ||
-            !jbclient_jbsettings_get_bool("wxCompatibilityUsed")) return;
-
-        self.schedulingCompatibilityNotice = YES;
-        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
-        [center requestAuthorizationWithOptions:UNAuthorizationOptionAlert completionHandler:^(BOOL granted, NSError *error) {
-            if (!granted || error) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    self.schedulingCompatibilityNotice = NO;
-                });
-                return;
-            }
-
-            UNMutableNotificationContent *content = [UNMutableNotificationContent new];
-            content.title = @"Executable Memory Compatibility";
-            content.body = @"A jailbreak tweak or other software requested executable-memory compatibility while JIT was turned off. This behavior will be deprecated in a future version.";
-            UNTimeIntervalNotificationTrigger *trigger = [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:1 repeats:NO];
-            UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:@"wxCompatibilityNotice" content:content trigger:trigger];
-            [center addNotificationRequest:request withCompletionHandler:^(NSError *scheduleError) {
-                if (!scheduleError) {
-                    jbclient_platform_jbsettings_set_bool("wxCompatibilityNoticeAcknowledged", true);
-                }
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    self.schedulingCompatibilityNotice = NO;
-                });
-            }];
-        }];
-    });
-}
-
-- (void)userNotificationCenter:(UNUserNotificationCenter *)center willPresentNotification:(UNNotification *)notification withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
-{
-    completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList);
 }
 
 

@@ -36,6 +36,8 @@
 - (void)viewWillAppear:(BOOL)arg1
 {
     [super viewWillAppear:arg1];
+    _specifiers = nil;
+    [self reloadSpecifiers];
     if (_lastKnownTheme != [[DOThemeManager sharedInstance] enabledTheme].key)
     {
         [DOSceneDelegate relaunch];
@@ -228,6 +230,9 @@
             
             PSSpecifier *settingsGroupSpecifier = [PSSpecifier emptyGroupSpecifier];
             settingsGroupSpecifier.name = DOLocalizedString(@"Section_Jailbreak_Settings");
+            if (envManager.isJailbroken && jbclient_jbsettings_get_bool("wxCompatibilityUsed")) {
+                [settingsGroupSpecifier setProperty:@"A jailbreak tweak or other software requested executable-memory compatibility while JIT was turned off. This behavior will be deprecated in a future version." forKey:@"footerText"];
+            }
             [specifiers addObject:settingsGroupSpecifier];
             
             PSSpecifier *tweakInjectionSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Settings_Tweak_Injection") target:self set:@selector(setTweakInjectionEnabled:specifier:) get:@selector(readTweakInjectionEnabled:) detail:nil cell:PSSwitchCell edit:nil];
