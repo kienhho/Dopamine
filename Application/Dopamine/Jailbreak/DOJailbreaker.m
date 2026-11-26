@@ -29,6 +29,7 @@
 #import <libjailbreak/util.h>
 #import <libjailbreak/jbserver_boomerang.h>
 #import <libjailbreak/signatures.h>
+#import <libjailbreak/trustcache.h>
 #import <libjailbreak/jbclient_xpc.h>
 #import <libjailbreak/jbclient_mach.h>
 #import <libjailbreak/kcall_arm64.h>
@@ -346,36 +347,14 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 
 - (NSError *)loadBasebinTrustcache
 {
-    NSURL *basebinURL = [NSURL fileURLWithPath:JBROOT_PATH(@"/basebin") isDirectory:YES];
-    __block NSError *enumerationError = nil;
-    NSDirectoryEnumerator<NSURL *> *enumerator = [[NSFileManager defaultManager] enumeratorAtURL:basebinURL includingPropertiesForKeys:@[NSURLIsRegularFileKey] options:0 errorHandler:^BOOL(NSURL *url, NSError *error) {
-        enumerationError = error;
-        return NO;
-    }];
-    for (NSURL *fileURL in enumerator) {
-        NSNumber *isRegularFile = nil;
-        NSError *error = nil;
-        if (![fileURL getResourceValue:&isRegularFile forKey:NSURLIsRegularFileKey error:&error]) return error;
-        if (!isRegularFile.boolValue) continue;
-
-        NSString *path = fileURL.path;
-        int fd = open(path.fileSystemRepresentation, O_RDONLY);
-        if (fd < 0) {
-            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedBasebinTrustcache userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to open %@", path]}];
-        }
-        uint32_t magic = 0;
-        ssize_t bytesRead = read(fd, &magic, sizeof(magic));
-        close(fd);
-        if (bytesRead != sizeof(magic)) continue;
-        if (magic != MH_MAGIC && magic != MH_CIGAM && magic != MH_MAGIC_64 && magic != MH_CIGAM_64 &&
-            magic != FAT_MAGIC && magic != FAT_CIGAM && magic != FAT_MAGIC_64 && magic != FAT_CIGAM_64) continue;
-
-        int r = trust_signatures_by_path(path.fileSystemRepresentation);
-        if (r != 0) {
-            return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedBasebinTrustcache userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to trust signatures for %@: %d", path, r]}];
-        }
+    trustcache_file_v1 *basebinTcFile = NULL;
+    if (trustcache_file_build_from_path(JBROOT_PATH("/basebin/basebin.tc"), &basebinTcFile) == 0) {
+        int r = trustcache_file_upload_with_uuid(basebinTcFile, BASEBIN_TRUSTCACHE_UUID);
+        free(basebinTcFile);
+        if (r != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedBasebinTrustcache userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to upload BaseBin trustcache: %d", r]}];
+        return nil;
     }
-    return enumerationError;
+    return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedBasebinTrustcache userInfo:@{NSLocalizedDescriptionKey : @"Failed to load BaseBin trustcache"}];
 }
 
 struct boomerang_info {
@@ -460,9 +439,21 @@ void *boomerang_server(struct boomerang_info *info)
         return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Creating fakelib failed with error: %d", r]}];
     }
 
-    r = trust_signatures_by_path(JBROOT_PATH("/basebin/.fakelib/dyld"));
-    if (r != 0) {
-        return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to trust dyld signatures: %d", r]}];
+    cdhash_t *cdhashes = NULL;
+    uint32_t cdhashesCount = 0;
+    file_collect_untrusted_cdhashes_by_path(JBROOT_PATH("/basebin/.fakelib/dyld"), &cdhashes, &cdhashesCount);
+    if (cdhashesCount != 1) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Got unexpected number of cdhashes for dyld???: %d", cdhashesCount]}];
+
+    trustcache_file_v1 *dyldTCFile = NULL;
+    r = trustcache_file_build_from_cdhashes(cdhashes, cdhashesCount, &dyldTCFile);
+    free(cdhashes);
+    if (r == 0) {
+        int r = trustcache_file_upload_with_uuid(dyldTCFile, DYLD_TRUSTCACHE_UUID);
+        if (r != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to upload dyld trustcache: %d", r]}];
+        free(dyldTCFile);
+    }
+    else {
+        return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : @"Failed to build dyld trustcache"}];
     }
     
     r = [[DOEnvironmentManager sharedManager] setFakelibMounted:YES];
@@ -658,7 +649,7 @@ void *boomerang_server(struct boomerang_info *info)
         [[NSData data] writeToFile:JBROOT_PATH(@"/basebin/.safe_mode") atomically:YES];
     }
     
-    [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Trusting BaseBin Signatures") debug:NO];
+    [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Loading BaseBin TrustCache") debug:NO];
     *errOut = [self loadBasebinTrustcache];
     if (*errOut) {
         [self cleanUpPostExploitation];
