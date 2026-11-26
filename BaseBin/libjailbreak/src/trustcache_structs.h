@@ -34,8 +34,8 @@ typedef struct jb_trustcache
 	trustcache_file_v1 file;
 } __attribute__((__packed__)) jb_trustcache;
 
-#define JB_TRUSTCACHE_SIZE 0x4000
-#define JB_TC_BATCH_SIZE 8
+#define JB_TRUSTCACHE_SIZE 0x1000
+#define JB_TC_BATCH_SIZE 4
 #define JB_TC_BATCH_COUNT 8
 #define JB_TC_BATCH_MAGIC 0x4241544348544300ULL // "BATCHTC" + batch index
 #define JB_TC_BATCH_STRIDE ((sizeof(jb_trustcache) + JB_TC_BATCH_SIZE * sizeof(trustcache_entry_v1) + 15) & ~(size_t)15)

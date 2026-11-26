@@ -304,7 +304,7 @@ void jb_trustcache_clear(void)
 uint64_t _jb_trustcache_grow(void)
 {
 	uint64_t jbTcKern = 0;
-	if (kalloc(&jbTcKern, 0x4000) != 0) return 0;
+	if (kalloc(&jbTcKern, JB_TRUSTCACHE_SIZE) != 0) return 0;
 
 	jb_trustcache *jbTc = alloca(sizeof(jb_trustcache));
 	memset(jbTc, 0, sizeof(jb_trustcache));

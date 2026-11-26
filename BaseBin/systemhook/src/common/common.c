@@ -504,7 +504,7 @@ static kern_return_t mach_vm_protect_original(mach_port_name_t task, mach_vm_add
 
 static kern_return_t mach_vm_protect_fixed_common(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection, bool useHookd)
 {
-	if (gProtectRequestInProgress) {
+	if (!(protection & (VM_PROT_EXECUTE | VM_PROT_COPY)) || gProtectRequestInProgress) {
 		return mach_vm_protect_original(task, address, size, set_maximum, protection);
 	}
 	gProtectRequestInProgress = true;
@@ -517,7 +517,7 @@ static kern_return_t mach_vm_protect_fixed_common(mach_port_name_t task, mach_vm
 	}
 
 	kern_return_t kr;
-	if (useHookd && (protection & (VM_PROT_EXECUTE | VM_PROT_COPY))) {
+	if (useHookd) {
 		kr = hookd_vm_protect(task, address, size, set_maximum, protection);
 	} else {
 		kr = mach_vm_protect_original(task, address, size, set_maximum, protection);

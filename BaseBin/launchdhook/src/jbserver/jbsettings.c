@@ -1,10 +1,17 @@
 #include "jbsettings.h"
 #include <libjailbreak/info.h>
+#include <stdatomic.h>
+
+static atomic_bool wxCompatibilityUsed;
 
 int jbsettings_get(const char *key, xpc_object_t *valueOut)
 {
 	if (!key)	return -1;
 
+	if (!strcmp(key, "wxCompatibilityUsed")) {
+		*valueOut = xpc_bool_create(atomic_load(&wxCompatibilityUsed));
+		return 0;
+	}
 	if (!strcmp(key, "markAppsAsDebugged")) {
 		*valueOut = xpc_bool_create(jbsetting(markAppsAsDebugged));
 		return 0;
@@ -18,6 +25,12 @@ int jbsettings_get(const char *key, xpc_object_t *valueOut)
 
 int jbsettings_set(const char *key, xpc_object_t value)
 {
+	if (!key) return -1;
+	if (!strcmp(key, "wxCompatibilityUsed") && xpc_get_type(value) == XPC_TYPE_BOOL) {
+		if (!xpc_bool_get_value(value) || jbsetting(markAppsAsDebugged)) return 0;
+		atomic_store(&wxCompatibilityUsed, true);
+		return 0;
+	}
 	if (!strcmp(key, "markAppsAsDebugged") && xpc_get_type(value) == XPC_TYPE_BOOL) {
 		gSystemInfo.jailbreakSettings.markAppsAsDebugged = xpc_bool_get_value(value);
 		return 0;

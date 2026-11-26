@@ -18,8 +18,13 @@ int platform_set_process_debugged(uint64_t pid, bool fullyDebugged)
 {
 	uint64_t proc = proc_find(pid);
 	if (!proc) return -1;
-	cs_allow_invalid(proc, fullyDebugged);
-	return 0;
+	int r = cs_allow_invalid(proc, fullyDebugged);
+	if (r == 0 && !fullyDebugged) {
+		xpc_object_t wxUsed = xpc_bool_create(true);
+		jbsettings_set("wxCompatibilityUsed", wxUsed);
+		xpc_release(wxUsed);
+	}
+	return r;
 }
 
 static int platform_stage_jailbreak_update(const char *updateTar)
