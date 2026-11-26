@@ -149,7 +149,6 @@ __attribute__((constructor)) static void initializer(void)
 	}
 
 	litehook_set_image_prepare_callback(launchdhook_prepare_patch_image);
-	mach_vm_protect_set_process_debugged = platform_set_process_debugged;
 
 	if (jbupdatePrevVersion && jbupdateNewVersion) {
 		jbupdate_finalize_stage2(jbupdatePrevVersion, jbupdateNewVersion);
@@ -159,10 +158,7 @@ __attribute__((constructor)) static void initializer(void)
 
 	if (__builtin_available(iOS 19.0, *)) {
 		hookd_provider_init();
-		litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed_19);
 		init_hookd_external_support();
-	} else {
-		litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed);
 	}
 
 	initXPCHooks();

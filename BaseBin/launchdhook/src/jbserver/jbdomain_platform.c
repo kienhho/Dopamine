@@ -3,10 +3,6 @@
 
 #include <libjailbreak/codesign.h>
 #include <libjailbreak/libjailbreak.h>
-#include <libjailbreak/jbroot.h>
-#include <fcntl.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 extern void systemwide_domain_set_enabled(bool enabled);
 
@@ -23,13 +19,6 @@ int platform_set_process_debugged(uint64_t pid, bool fullyDebugged)
 	uint64_t proc = proc_find(pid);
 	if (!proc) return -1;
 	int r = cs_allow_invalid(proc, fullyDebugged);
-	if (r == 0 && !fullyDebugged && !jbsetting(markAppsAsDebugged)) {
-		int fd = open(JBROOT_PATH("/.wx_compatibility_layer"), O_WRONLY | O_CREAT, 0600);
-		if (fd >= 0) {
-			futimes(fd, NULL);
-			close(fd);
-		}
-	}
 	return r;
 }
 

@@ -387,7 +387,6 @@ __attribute__((constructor)) static void initializer(void)
 	}
 
 	// On iOS 26+, hooks have to be applied through hookd
-	void *protectHook = mach_vm_protect_fixed;
 	bool enableHookdExternal = false;
 	if (__builtin_available(iOS 19.0, *)) {
 
@@ -406,13 +405,12 @@ __attribute__((constructor)) static void initializer(void)
 		}
 
 		if (process_requires_hookd()) {
-			protectHook = mach_vm_protect_fixed_19;
 			enableHookdExternal = true;
+			if (gFullyDebugged && litehook_hook_function(mach_vm_protect, mach_vm_protect_fixed_19) != KERN_SUCCESS) {
+				fprintf(stderr, "systemhook: vm_protect hook failed\n");
+				return;
+			}
 		}
-	}
-	if (litehook_hook_function(mach_vm_protect, protectHook) != KERN_SUCCESS) {
-		fprintf(stderr, "systemhook: vm_protect hook failed\n");
-		return;
 	}
 	if (enableHookdExternal) init_hookd_external_support();
 
@@ -462,9 +460,7 @@ __attribute__((constructor)) static void initializer(void)
 	}
 
 #ifdef __arm64e__
-	// Since pages have been modified in this process, we need to load forkfix to ensure forking will work
-	// Optimization: If the process cannot fork at all due to sandbox, we don't need to do anything
-	if (sandbox_check(getpid(), "process-fork", SANDBOX_CHECK_NO_REPORT, NULL) == 0) {
+	if (gFullyDebugged && sandbox_check(getpid(), "process-fork", SANDBOX_CHECK_NO_REPORT, NULL) == 0) {
 		dlopen(JBROOT_PATH("/basebin/forkfix.dylib"), RTLD_NOW);
 	}
 #endif
@@ -495,8 +491,10 @@ __attribute__((constructor)) static void initializer(void)
 		// On arm64, writing to executable pages removes CS_VALID from the csflags of the process
 		// These hooks are neccessary to get the system to behave with this (since multiple system APIs check for CS_VALID and produce failures if it's not set)
 		// They are ugly but needed
-		processHooks[processHookCount++] = (struct litehook_function_hook){ csops, csops_hook };
-		processHooks[processHookCount++] = (struct litehook_function_hook){ csops_audittoken, csops_audittoken_hook };
+		if (gFullyDebugged) {
+			processHooks[processHookCount++] = (struct litehook_function_hook){ csops, csops_hook };
+			processHooks[processHookCount++] = (struct litehook_function_hook){ csops_audittoken, csops_audittoken_hook };
+		}
 		if (__builtin_available(iOS 16.0, *)) {
 			processHooks[processHookCount++] = (struct litehook_function_hook){ necp_match_policy, necp_match_policy_hook };
 			processHooks[processHookCount++] = (struct litehook_function_hook){ necp_open, necp_open_hook };

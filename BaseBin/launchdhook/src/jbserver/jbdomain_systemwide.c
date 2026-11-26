@@ -217,10 +217,7 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	// CS_ADHOC needs to be forced in dyld's fcntl hook on SPTM devices
 	*forceCSAdhocOut = (ksymbol(SPTMArgs) != 0);
 
-	// These hooks use Ellekit so requires invalid page
-	if (fullyDebugged) {
-		cs_allow_invalid(proc, true);
-	}
+	cs_allow_invalid(proc, fullyDebugged);
 
 	// Fix setuid
 	struct stat sb;
@@ -388,7 +385,7 @@ int systemwide_fork_fix(audit_token_t *parentToken, uint64_t childPid)
 			uint64_t childVmMap = kread_ptr(childTask + koffsetof(task, map));
 			uint64_t childPmap  = kread_ptr(childVmMap + koffsetof(vm_map, pmap));
 
-			cs_allow_invalid(childProc, false);
+			cs_allow_invalid(childProc, true);
 
 			uint64_t parentHeader   = parentVmMap + koffsetof(vm_map, hdr);
 			uint32_t parentNentries = kread32(parentHeader + koffsetof(vm_map_header, nentries));

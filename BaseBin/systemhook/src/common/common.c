@@ -489,7 +489,6 @@ kern_return_t litehook_hook_memory_hookd(void *target, void *source, size_t sour
 	return kr;
 }
 
-int (*mach_vm_protect_set_process_debugged)(uint64_t pid, bool fullyDebugged) = jbclient_platform_set_process_debugged;
 static _Thread_local bool gProtectRequestInProgress;
 
 static kern_return_t mach_vm_protect_original(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection)
@@ -501,36 +500,13 @@ static kern_return_t mach_vm_protect_original(mach_port_name_t task, mach_vm_add
 	return kr;
 }
 
-static kern_return_t mach_vm_protect_fixed_common(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection, bool useHookd)
+kern_return_t mach_vm_protect_fixed_19(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection)
 {
 	if (!(protection & (VM_PROT_EXECUTE | VM_PROT_COPY)) || gProtectRequestInProgress) {
 		return mach_vm_protect_original(task, address, size, set_maximum, protection);
 	}
 	gProtectRequestInProgress = true;
-	pid_t pid = 0;
-	if (task == mach_task_self_) pid = getpid();
-	else if (pid_for_task(task, &pid) != KERN_SUCCESS) pid = 0;
-	if (pid > 0) {
-		int result = mach_vm_protect_set_process_debugged(pid, false);
-		if (result != 0) fprintf(stderr, "vm_protect: debug request failed (%d)\n", result);
-	}
-
-	kern_return_t kr;
-	if (useHookd) {
-		kr = hookd_vm_protect(task, address, size, set_maximum, protection);
-	} else {
-		kr = mach_vm_protect_original(task, address, size, set_maximum, protection);
-	}
+	kern_return_t kr = hookd_vm_protect(task, address, size, set_maximum, protection);
 	gProtectRequestInProgress = false;
 	return kr;
-}
-
-kern_return_t mach_vm_protect_fixed(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection)
-{
-	return mach_vm_protect_fixed_common(task, address, size, set_maximum, protection, false);
-}
-
-kern_return_t mach_vm_protect_fixed_19(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_maximum, vm_prot_t protection)
-{
-	return mach_vm_protect_fixed_common(task, address, size, set_maximum, protection, true);
 }
